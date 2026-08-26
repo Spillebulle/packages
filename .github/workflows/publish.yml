@@ -1,0 +1,166 @@
+name: Publish archive
+
+# The archive is rebuilt from nothing every time, from the newest release of
+# every repository in `projects`. There is no incremental state, so the answer
+# to "is the archive right?" is always "run this again", and a bad publish is
+# undone by fixing the input and pressing the button.
+#
+# Three things start it:
+#
+#   * `repository_dispatch`, sent by a project's own release workflow as its
+#     last step. That is the normal path: a tag goes out, the release finishes,
+#     the archive picks it up a minute later.
+#   * `workflow_dispatch`, for a rehearsal or after editing anything here.
+#   * A weekly run, which is not about new releases at all. Apt refuses an
+#     archive whose `Release` file is older than a distribution-set age on some
+#     configurations, and a signature that is never refreshed is a slow failure
+#     nobody is watching for.
+on:
+  repository_dispatch:
+    types: [package]
+  workflow_dispatch:
+  schedule:
+    - cron: '17 4 * * 1'
+
+# `pages` and `id-token` are what `deploy-pages` needs; `contents: read` is all
+# the build needs, because every package it touches is a public release asset.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Two projects releasing on the same afternoon would otherwise race, and the
+# loser's packages would silently not be in the archive. Never cancel: the
+# second run has to happen, because it is the one that carries both.
+concurrency:
+  group: archive
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: build and verify
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install the archive tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dpkg-dev apt-utils createrepo-c rpm
+
+      # The newest release of each project, and nothing older. A machine only
+      # ever needs the version it is upgrading *to*, so carrying history would
+      # cost Pages storage to enable a downgrade nobody has asked for.
+      - name: Collect the packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          mkdir -p incoming
+          while read -r repo; do
+            case "$repo" in ''|'#'*) continue ;; esac
+            echo "==> $repo"
+            gh release download -R "$repo" \
+              --pattern '*.deb' --pattern '*.rpm' \
+              --dir incoming --clobber
+          done < projects
+          ls -la incoming
+
+      # The private half never leaves this repository. A project's own release
+      # workflow can ask for a publish and cannot sign one, which is the whole
+      # reason the archive is a repository of its own rather than a step in
+      # each application's release.
+      - name: Import the signing key
+        env:
+          ARCHIVE_SIGNING_KEY: ${{ secrets.ARCHIVE_SIGNING_KEY }}
+        run: |
+          set -eu
+          if [ -z "${ARCHIVE_SIGNING_KEY:-}" ]; then
+            echo "ARCHIVE_SIGNING_KEY is not set; see README.md" >&2
+            exit 1
+          fi
+          printf '%s' "$ARCHIVE_SIGNING_KEY" | gpg --batch --import
+          gpg --list-secret-keys --keyid-format=long
+
+      - name: Build
+        run: tools/build-archive.sh incoming site
+
+      # --- the part that makes this a release process rather than a hope -----
+      #
+      # Both containers do the real thing against the real files: add the key,
+      # add the source, refuse anything that does not verify, and resolve an
+      # install. `--download-only` and `--downloadonly` stop short of unpacking
+      # a desktop application's whole dependency tree, and stop short of
+      # nothing that matters: apt has already checked the signature on the
+      # index and the hash of the package by then, and dnf has already checked
+      # the signature on `repomd.xml` and on the package itself.
+      # Served over plain HTTP on the loopback, and the containers below join
+      # the host's network namespace so they can reach it. `--network host` is
+      # what makes 127.0.0.1 mean the same thing on both sides.
+      - name: Serve the archive
+        run: |
+          set -eu
+          nohup python3 -m http.server -d site 8000 >/dev/null 2>&1 &
+          for _ in $(seq 20); do
+            curl -fsS http://127.0.0.1:8000/index.html >/dev/null && break
+            sleep 0.5
+          done
+          # The names to install, taken from the index that was just built
+          # rather than written out here, so this cannot fall behind `projects`.
+          names=$(awk '/^Package: /{ print $2 }' site/deb/Packages | sort -u | tr '\n' ' ')
+          echo "PACKAGES=$names" >> "$GITHUB_ENV"
+          echo "verifying: $names"
+
+      # No heredocs inside these containers, however much they would read
+      # better: the shell script is a YAML block scalar, so every line has had
+      # an indentation stripped from it, and a heredoc terminator that comes
+      # out with a space in front of it hangs the shell until the job times
+      # out. `printf` has no such edge.
+      - name: Verify with apt
+        run: |
+          docker run --rm --network host --env PACKAGES debian:stable sh -eu -c '
+            apt-get update -qq
+            apt-get install -y -qq curl gnupg ca-certificates >/dev/null
+            curl -fsSL http://127.0.0.1:8000/spillebulle-archive.asc \
+              | gpg --dearmor -o /usr/share/keyrings/spillebulle-archive.gpg
+            printf "%s\n" \
+              "Types: deb" \
+              "URIs: http://127.0.0.1:8000/deb/" \
+              "Suites: ./" \
+              "Signed-By: /usr/share/keyrings/spillebulle-archive.gpg" \
+              > /etc/apt/sources.list.d/spillebulle.sources
+            apt-get update
+            apt-cache policy $PACKAGES
+            apt-get install -y --download-only $PACKAGES
+          '
+
+      - name: Verify with dnf
+        run: |
+          docker run --rm --network host --env PACKAGES fedora:latest sh -eu -c '
+            rpm --import http://127.0.0.1:8000/spillebulle-archive.asc
+            printf "%s\n" \
+              "[spillebulle]" \
+              "name=Spillebulle" \
+              "baseurl=http://127.0.0.1:8000/rpm/" \
+              "enabled=1" \
+              "gpgcheck=1" \
+              "repo_gpgcheck=1" \
+              "gpgkey=http://127.0.0.1:8000/spillebulle-archive.asc" \
+              > /etc/yum.repos.d/spillebulle.repo
+            dnf -y --refresh install --downloadonly $PACKAGES
+          '
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    name: deploy
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/deploy-pages@v4
+        id: deploy

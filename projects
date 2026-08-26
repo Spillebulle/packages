@@ -1,0 +1,9 @@
+# The repositories the archive carries, one per line.
+#
+# The newest release of each is what gets published: its `.deb` and `.rpm`
+# assets, both architectures. Nothing else is read from the repository, so a
+# project joins the archive by being added here and by having its release
+# workflow send the dispatch at the end (see README.md).
+
+Spillebulle/Muster
+Spillebulle/Umber

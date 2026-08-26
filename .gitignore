@@ -1,0 +1,10 @@
+# Built by tools/build-archive.sh; never committed. The archive holds no
+# state, so nothing it produces belongs in git.
+site/
+incoming/
+
+# The private key is exported into this directory when it is created, and it
+# belongs in an Actions secret and nowhere else. Ignored so that a stray
+# `git add -A` on the day it is generated cannot publish it.
+*.asc
+*.gpg
