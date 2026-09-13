@@ -1,6 +1,6 @@
 # Spillebulle packages
 
-The apt and rpm archive for the desktop applications: **Muster**, **Umber**,
+The apt and rpm archive for the desktop applications: **Brokey**, **Muster**, **Umber**,
 and whatever comes next. Adding it is two commands, once, and from then on the
 system package manager keeps every one of them up to date the way it keeps
 everything else up to date.
