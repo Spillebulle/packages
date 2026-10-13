@@ -162,7 +162,10 @@ jobs:
 
       # The pacman half, the same way: trust the key locally, add the
       # repository after the official ones, refuse an unsigned database or
-      # package, and install every package it lists. An empty repository passes
+      # package, and install every package it lists: installed, not only
+      # downloaded, so pacman checks every signature, but without dependencies
+      # or scriptlets, which are each application's business. No apostrophes
+      # inside the script below: it is one single-quoted string. An empty repository passes
       # here only by being a valid, signed, empty database.
       - name: Verify with pacman
         run: |
@@ -180,9 +183,6 @@ jobs:
             names=$(pacman -Sl spillebulle | cut -d" " -f2 | tr "\n" " ")
             echo "pacman sees: ${names:-nothing}"
             if [ -n "$names" ]; then
-              # Installed, not only downloaded, so pacman checks every
-              # signature; without their dependencies or scriptlets, which are
-              # the applications' business and not the archive's.
               pacman -S --noconfirm --nodeps --nodeps --noscriptlet $names
             fi
           '
