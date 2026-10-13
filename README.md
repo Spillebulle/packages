@@ -16,13 +16,14 @@ Published at **https://spillebulle.github.io/packages/**.
 Debian, Ubuntu, Mint, Pop!\_OS:
 
 ```sh
+sudo install -d /etc/apt/keyrings
 curl -fsSL https://spillebulle.github.io/packages/spillebulle-archive.asc \
-  | sudo gpg --dearmor -o /usr/share/keyrings/spillebulle-archive.gpg
+  | sudo gpg --dearmor -o /etc/apt/keyrings/spillebulle-archive.gpg
 sudo tee /etc/apt/sources.list.d/spillebulle.sources >/dev/null <<'EOF'
 Types: deb
 URIs: https://spillebulle.github.io/packages/deb/
 Suites: ./
-Signed-By: /usr/share/keyrings/spillebulle-archive.gpg
+Signed-By: /etc/apt/keyrings/spillebulle-archive.gpg
 EOF
 sudo apt update
 ```

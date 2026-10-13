@@ -134,11 +134,18 @@ An application that checks for updates states the same paths in its own
 language, so check them (§18.3):
 
 - apt: `/etc/apt/sources.list.d/spillebulle.sources` present means "your
-  package manager has it": print `sudo apt update && sudo apt upgrade`.
-- rpm: `/etc/yum.repos.d/spillebulle.repo` means `sudo dnf upgrade`.
-- pacman: a `[spillebulle]` section in `/etc/pacman.conf` means
-  `sudo pacman -Syu`.
+  package manager has it". Muster prints
+  `sudo apt update && sudo apt install --only-upgrade <app>`.
+- rpm: `/etc/yum.repos.d/spillebulle.repo` present means the same; Muster
+  prints no command, because Fedora, RHEL and openSUSE use different front
+  ends and any one command is wrong on the others.
+- pacman: a line that is exactly `[spillebulle]` (trimmed; a commented-out
+  section does not count) in `/etc/pacman.conf` means `sudo pacman -Syu`, on
+  x86-64 only while the archive carries no aarch64 Arch packages.
 - None of them: name the exact release asset for this machine, or none.
+
+Muster's `crates/muster-app/src/update/install.rs` is the reference; follow
+its choices rather than this summary where they differ.
 
 `packaging/check.sh` in each application fails if a path here and the path in
 its scriptlets or updater disagree.

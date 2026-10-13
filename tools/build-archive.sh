@@ -273,13 +273,14 @@ HEAD
 
     cat <<HTML
 <h2>Debian, Ubuntu, Mint</h2>
-<pre>curl -fsSL $BASE_URL/$KEYNAME.asc \\
-  | sudo gpg --dearmor -o /usr/share/keyrings/$KEYNAME.gpg
+<pre>sudo install -d /etc/apt/keyrings
+curl -fsSL $BASE_URL/$KEYNAME.asc \\
+  | sudo gpg --dearmor -o /etc/apt/keyrings/$KEYNAME.gpg
 sudo tee /etc/apt/sources.list.d/spillebulle.sources &gt;/dev/null &lt;&lt;'END'
 Types: deb
 URIs: $BASE_URL/deb/
 Suites: ./
-Signed-By: /usr/share/keyrings/$KEYNAME.gpg
+Signed-By: /etc/apt/keyrings/$KEYNAME.gpg
 END
 sudo apt update</pre>
 
