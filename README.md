@@ -132,7 +132,10 @@ step at the end of each `release.yml`.
 
 ## Adding a project
 
-1. Add its repository to `projects`.
+1. Add its repository to `projects`. It can be listed before its first
+   release, or while it is private: the publish skips it with a warning until
+   it has a public release, because this workflow reads releases with its own
+   token, which sees public repositories only.
 2. Give the repository the `ARCHIVE_DISPATCH_TOKEN` secret.
 3. Copy the "Tell the archive" step from Muster's `release.yml` into its own.
 4. Have its `.deb` and `.rpm` enrol the machine, which is

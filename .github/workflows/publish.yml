@@ -51,6 +51,10 @@ jobs:
       # The newest release of each project, and nothing older. A machine only
       # ever needs the version it is upgrading *to*, so carrying history would
       # cost Pages storage to enable a downgrade nobody has asked for.
+      #
+      # A project with no release this token can see (none yet, or a private
+      # repository) is skipped, loudly, rather than failing the run: otherwise
+      # listing it would stop every other project's packages being published.
       - name: Collect the packages
         env:
           GH_TOKEN: ${{ github.token }}
@@ -60,6 +64,10 @@ jobs:
           while read -r repo; do
             case "$repo" in ''|'#'*) continue ;; esac
             echo "==> $repo"
+            if ! gh release view -R "$repo" >/dev/null 2>&1; then
+              echo "::warning::$repo has no release this workflow can see (none yet, or the repository is private); nothing of it is published"
+              continue
+            fi
             gh release download -R "$repo" \
               --pattern '*.deb' --pattern '*.rpm' \
               --dir incoming --clobber
