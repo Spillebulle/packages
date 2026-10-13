@@ -46,7 +46,8 @@ jobs:
       - name: Install the archive tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y dpkg-dev apt-utils createrepo-c rpm
+          sudo apt-get install -y dpkg-dev apt-utils createrepo-c rpm \
+            pacman-package-manager libarchive-tools zstd
 
       # The newest release of each project, and nothing older. A machine only
       # ever needs the version it is upgrading *to*, so carrying history would
@@ -69,7 +70,7 @@ jobs:
               continue
             fi
             gh release download -R "$repo" \
-              --pattern '*.deb' --pattern '*.rpm' \
+              --pattern '*.deb' --pattern '*.rpm' --pattern '*.pkg.tar.zst' \
               --dir incoming --clobber
           done < projects
           ls -la incoming
@@ -118,6 +119,7 @@ jobs:
           names=$(awk '/^Package: /{ print $2 }' site/deb/Packages | sort -u | tr '\n' ' ')
           echo "PACKAGES=$names" >> "$GITHUB_ENV"
           echo "verifying: $names"
+          echo "ARCHIVE_KEY=$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr:/ { print $10; exit }')" >> "$GITHUB_ENV"
 
       # No heredocs inside these containers, however much they would read
       # better: the shell script is a YAML block scalar, so every line has had
@@ -156,6 +158,33 @@ jobs:
               "gpgkey=http://127.0.0.1:8000/spillebulle-archive.asc" \
               > /etc/yum.repos.d/spillebulle.repo
             dnf -y --refresh install --downloadonly $PACKAGES
+          '
+
+      # The pacman half, the same way: trust the key locally, add the
+      # repository after the official ones, refuse an unsigned database or
+      # package, and install every package it lists. An empty repository passes
+      # here only by being a valid, signed, empty database.
+      - name: Verify with pacman
+        run: |
+          docker run --rm --network host --env ARCHIVE_KEY archlinux:latest sh -eu -c '
+            pacman-key --init >/dev/null 2>&1
+            curl -fsSL http://127.0.0.1:8000/spillebulle-archive.asc -o /tmp/archive.asc
+            pacman-key --add /tmp/archive.asc
+            pacman-key --lsign-key "$ARCHIVE_KEY"
+            printf "%s\n" \
+              "SigLevel = Required DatabaseRequired" \
+              "Server = http://127.0.0.1:8000/arch/\$arch" \
+              > /etc/pacman.d/spillebulle
+            printf "\n[spillebulle]\nInclude = /etc/pacman.d/spillebulle\n" >> /etc/pacman.conf
+            pacman -Sy --noconfirm
+            names=$(pacman -Sl spillebulle | cut -d" " -f2 | tr "\n" " ")
+            echo "pacman sees: ${names:-nothing}"
+            if [ -n "$names" ]; then
+              # Installed, not only downloaded, so pacman checks every
+              # signature; without their dependencies or scriptlets, which are
+              # the applications' business and not the archive's.
+              pacman -S --noconfirm --nodeps --nodeps --noscriptlet $names
+            fi
           '
 
       - uses: actions/upload-pages-artifact@v3

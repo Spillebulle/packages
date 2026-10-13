@@ -5,7 +5,7 @@ code in this repository.
 
 ## What this is
 
-The apt and rpm archive for every desktop application under `Mine/`. It has no
+The apt, rpm and pacman archive for every desktop application under `Mine/`. It has no
 runtime and no application code: a shell script that builds a static site, a
 workflow that runs it, and a list of repositories to collect from. `README.md`
 is the user-facing half and is kept honest; this file is the reasoning.
@@ -36,6 +36,16 @@ When a question here has an answer there, take it.
   scheduled outage on every machine that added the archive, on a date nobody
   remembers. Both are written down in `README.md` so the next person does not
   "fix" them.
+- **A pacman repository named `spillebulle`**, under `arch/$arch/`, with every
+  package and the database signed (`SigLevel = Required DatabaseRequired`).
+  The database name is the repository name, so it is published interface.
+  Pages serves no symlinks, so `repo-add`'s links are replaced with copies,
+  and an empty architecture still gets an empty signed database: a 404 would
+  stop `pacman -Syu` for the whole system on every enrolled machine.
+- **What the packages do on install is one contract**, `ENROLMENT.md`, with the
+  same paths and scripts in every application. No two packages may ship the
+  same path (dpkg refuses the second), which is why each ships the key under
+  its own name and a scriptlet writes the shared copy.
 - **A flat repository for apt.** No `dists/`, no components. It is the right
   shape while every application ships one build per architecture. The day one
   needs a per-distribution build it cannot express that, and the migration is a

@@ -1,6 +1,6 @@
 # Spillebulle packages
 
-The apt and rpm archive for the desktop applications: **Brokey**, **Muster**, **Umber**,
+The apt, rpm and pacman archive for the desktop applications: **Brokey**, **Muster**, **Umber**,
 and whatever comes next. Adding it is two commands, once, and from then on the
 system package manager keeps every one of them up to date the way it keeps
 everything else up to date.
@@ -26,6 +26,24 @@ Signed-By: /usr/share/keyrings/spillebulle-archive.gpg
 EOF
 sudo apt update
 ```
+
+Arch, CachyOS, EndeavourOS, Manjaro:
+
+```sh
+curl -fsSL https://spillebulle.github.io/packages/spillebulle-archive.asc -o /tmp/spillebulle-archive.asc
+sudo pacman-key --add /tmp/spillebulle-archive.asc
+sudo pacman-key --lsign-key 7A9EA69E033F3C3EF4F53EB4A72BC0FD5E061ADA
+printf '%s\n' 'SigLevel = Required DatabaseRequired' \
+  'Server = https://spillebulle.github.io/packages/arch/$arch' \
+  | sudo tee /etc/pacman.d/spillebulle >/dev/null
+printf '\n[spillebulle]\nInclude = /etc/pacman.d/spillebulle\n' | sudo tee -a /etc/pacman.conf >/dev/null
+sudo pacman -Sy
+```
+
+Then `sudo pacman -S muster-bin` (or `umber-bin`, `brokey-bin`, `windup-bin`),
+and `sudo pacman -Syu` keeps them current with everything else. To opt out,
+delete the `[spillebulle]` section and `/etc/pacman.d/spillebulle`, and
+`sudo touch /etc/pacman.d/spillebulle.disabled`.
 
 Fedora, RHEL, openSUSE:
 
@@ -138,9 +156,10 @@ step at the end of each `release.yml`.
    token, which sees public repositories only.
 2. Give the repository the `ARCHIVE_DISPATCH_TOKEN` secret.
 3. Copy the "Tell the archive" step from Muster's `release.yml` into its own.
-4. Have its `.deb` and `.rpm` enrol the machine, which is
-   `packaging/linux/build-packages.sh` plus `packaging/linux/spillebulle-archive.asc`
-   copied across from Muster.
+4. Have its `.deb`, `.rpm` and Arch package enrol the machine exactly as
+   [`ENROLMENT.md`](ENROLMENT.md) says, with `packaging/linux/spillebulle-archive.asc`
+   copied across from Muster. Its Arch package is attached to each release as
+   `<app>-bin-<version>-1-x86_64.pkg.tar.zst`.
 5. Run this workflow by hand once, and read what the two verify steps say.
 
 ## What this is not

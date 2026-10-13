@@ -3,7 +3,7 @@
 #
 #   tools/build-archive.sh <packages-dir> <out-dir>
 #
-#   packages-dir  holds .deb and .rpm files, in any layout
+#   packages-dir  holds .deb, .rpm and .pkg.tar.zst files, in any layout
 #   out-dir       is written from scratch: this is the whole Pages site
 #
 # The archive is a **pure function of the packages handed to it**. Nothing is
@@ -17,7 +17,7 @@
 # Runnable on any Debian-ish box, not only in CI, which is the point: a release
 # process only a robot can run cannot be rehearsed. On Ubuntu or Pop!_OS:
 #
-#   sudo apt install dpkg-dev apt-utils createrepo-c rpm
+#   sudo apt install dpkg-dev apt-utils createrepo-c rpm pacman-package-manager libarchive-tools zstd
 #   gpg --quick-generate-key "Test archive <test@example.com>" default default never
 #   ARCHIVE_KEY_ID=<the fingerprint> tools/build-archive.sh ~/packages /tmp/site
 #   python3 -m http.server -d /tmp/site 8000
@@ -60,9 +60,9 @@ if [ -z "$key" ]; then
 fi
 echo "==> signing with $key"
 
-for tool in dpkg-scanpackages apt-ftparchive createrepo_c rpmsign gpg; do
+for tool in dpkg-scanpackages apt-ftparchive createrepo_c rpmsign gpg repo-add bsdtar; do
     command -v "$tool" >/dev/null 2>&1 || {
-        echo "missing $tool (apt install dpkg-dev apt-utils createrepo-c rpm)" >&2
+        echo "missing $tool (apt install dpkg-dev apt-utils createrepo-c rpm pacman-package-manager libarchive-tools zstd)" >&2
         exit 1
     }
 done
@@ -167,6 +167,55 @@ gpg --batch --yes --local-user "$key" \
     --detach-sign --armor --output "$rpm/repodata/repomd.xml.asc" \
     "$rpm/repodata/repomd.xml"
 
+# --- the pacman archive ------------------------------------------------------
+#
+# A pacman repository named `spillebulle`, one directory per architecture so
+# the `Server` line can say `$arch` and an aarch64 build can join later without
+# a change on any machine. Pacman finds the database by the repository's name,
+# so `spillebulle.db` is part of the published interface, like Origin above.
+#
+# Signed in both places pacman checks with `SigLevel = Required
+# DatabaseRequired`: a detached `.sig` beside every package, and one beside the
+# database. Same key as apt and rpm.
+#
+# Pages serves files, not symlinks, so the links `repo-add` makes from
+# `spillebulle.db` to `spillebulle.db.tar.gz` are replaced with copies, and the
+# signatures copied alongside. An architecture with nothing in it still gets
+# an empty, signed database: a machine that added the repository must get "no
+# packages" from it, never a 404 that stops `pacman -Syu` for everything else.
+REPO=spillebulle
+for parch in x86_64; do
+    dir=$out/arch/$parch
+    mkdir -p "$dir"
+    found=0
+    while IFS= read -r -d '' package; do
+        cp "$package" "$dir/"
+        found=$((found + 1))
+    done < <(find "$incoming" \( -name "*-$parch.pkg.tar.zst" -o -name "*-any.pkg.tar.zst" \) -print0)
+    echo "==> $found .pkg.tar.zst for $parch"
+    (
+        cd "$dir"
+        if [ "$found" -gt 0 ]; then
+            for package in *.pkg.tar.zst; do
+                gpg --batch --yes --local-user "$key" --detach-sign --no-armor \
+                    --output "$package.sig" "$package"
+            done
+            repo-add --quiet "$REPO.db.tar.gz" ./*.pkg.tar.zst
+        else
+            bsdtar -czf "$REPO.db.tar.gz" -T /dev/null
+            bsdtar -czf "$REPO.files.tar.gz" -T /dev/null
+        fi
+        for db in db files; do
+            gpg --batch --yes --local-user "$key" --detach-sign --no-armor \
+                --output "$REPO.$db.tar.gz.sig" "$REPO.$db.tar.gz"
+            rm -f "$REPO.$db" "$REPO.$db.sig"
+            cp "$REPO.$db.tar.gz" "$REPO.$db"
+            cp "$REPO.$db.tar.gz.sig" "$REPO.$db.sig"
+        done
+        rm -f ./*.old ./*.old.sig
+    )
+done
+
 # --- the page ----------------------------------------------------------------
 #
 # The site is a Pages site whether or not anybody reads it, so it may as well
@@ -208,7 +257,7 @@ packages=$(
 </style>
 <main>
 <h1>Spillebulle packages</h1>
-<p>An apt and rpm archive for the desktop applications, so a package manager
+<p>An apt, rpm and pacman archive for the desktop applications, so a package manager
 keeps them up to date the way it keeps everything else up to date. Adding it is
 two commands, once, and it covers every application here and every one that
 comes later.</p>
@@ -246,8 +295,17 @@ repo_gpgcheck=1
 gpgkey=$BASE_URL/$KEYNAME.asc
 END</pre>
 
-<p>Installing any of the applications from its own <code>.deb</code> or
-<code>.rpm</code> does all of the above for you. This page is for adding the
+<h2>Arch, CachyOS, EndeavourOS, Manjaro</h2>
+<pre>curl -fsSL $BASE_URL/$KEYNAME.asc -o /tmp/$KEYNAME.asc
+sudo pacman-key --add /tmp/$KEYNAME.asc
+sudo pacman-key --lsign-key $key
+printf '%s\n' 'SigLevel = Required DatabaseRequired' \\
+  'Server = $BASE_URL/arch/\$arch' | sudo tee /etc/pacman.d/spillebulle &gt;/dev/null
+printf '\n[spillebulle]\nInclude = /etc/pacman.d/spillebulle\n' | sudo tee -a /etc/pacman.conf &gt;/dev/null
+sudo pacman -Sy</pre>
+
+<p>Installing any of the applications from its own <code>.deb</code>,
+<code>.rpm</code> or <code>.pkg.tar.zst</code> does all of the above for you. This page is for adding the
 archive first and installing from it.</p>
 
 <footer>Built from
